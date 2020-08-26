@@ -29,6 +29,8 @@ enum vcPolygonModelShaderType
   vcPMST_P3N3UV2_DepthOnly,
   vcPMST_P3N3UV2_Opaque_Image,
 
+  vcPMST_P3N3UV2_Instanced_Opaque,
+
   vcPMST_Count
 };
 
@@ -36,6 +38,10 @@ static struct vcPolygonModelShader
 {
   vcShader *pShader;
   vcShaderConstantBuffer *pEveryObjectConstantBuffer;
+
+
+  vcShaderConstantBuffer *pEveryInstanceStaticConstantBuffer;
+  vcShaderConstantBuffer *pEveryInstanceDynamicConstantBuffer;
 
   vcShaderSampler *pDiffuseSampler;
 
@@ -46,6 +52,14 @@ static struct vcPolygonModelShader
     udFloat4 u_colour;
     udFloat4 u_objectInfo; //id.x, isSelectable.y, (unused).zw
   } everyObject;
+
+  //struct
+  //{
+  //  udFloat4x4 u_worldViewProjectionMatrix;
+  //  udFloat4x4 u_world;
+  //  udFloat4 u_colour;
+  //  udFloat4 u_objectInfo; //id.x, isSelectable.y, (unused).zw
+  //} everyObjectInstanced[400];
 
 } gShaders[vcPMST_Count];
 
@@ -118,7 +132,7 @@ vcPolygonModelShaderType vcPolygonModel_GetShaderType(const vcVertexLayoutTypes 
   return vcPMST_Count;
 }
 
-udResult vcPolygonModel_CreateFromRawVertexData(vcPolygonModel **ppPolygonModel, const void *pVerts, const uint32_t vertCount, const vcVertexLayoutTypes *pMeshLayout, const int totalTypes, const uint32_t *pIndices /*= nullptr*/, const uint32_t indexCount /*= 0*/)
+udResult vcPolygonModel_CreateFromRawVertexData(vcPolygonModel **ppPolygonModel, const void *pVerts, const uint32_t vertCount, const vcVertexLayoutTypes *pMeshLayout, const int totalTypes, const uint32_t *pIndices /*= nullptr*/, const uint32_t indexCount /*= 0*/, bool instanced /*= false*/)
 {
   if (ppPolygonModel == nullptr || pVerts == nullptr || pMeshLayout == nullptr || vertCount == 0 || totalTypes <= 0)
     return udR_InvalidParameter_;
@@ -144,6 +158,8 @@ udResult vcPolygonModel_CreateFromRawVertexData(vcPolygonModel **ppPolygonModel,
   pPolygonModel->pMeshes[0].numElements = indexCount;
   pPolygonModel->pMeshes[0].material.pTexture = nullptr;
   pPolygonModel->pMeshes[0].materialID = (uint16_t)vcPolygonModel_GetShaderType(pMeshLayout, totalTypes);
+  if (instanced)
+    pPolygonModel->pMeshes[0].materialID = vcPMST_P3N3UV2_Instanced_Opaque;
 
   pPolygonModel->modelOffset = udDouble4x4::identity();
 
@@ -229,7 +245,7 @@ udResult vcPolygonModel_CreateFromVSMFInMemory(vcPolygonModel **ppModel, char *p
 
     // override material id for now
     pNewModel->pMeshes[i].materialID = vcPMST_P3N3UV2_Opaque;
-    
+
     size_t vertArraySize = sizeof(vcP3N3UV2Vertex) * pNewModel->pMeshes[i].numVertices;
     vcP3N3UV2Vertex *pVerts = (vcP3N3UV2Vertex*)pFilePos;
     pFilePos += vertArraySize;
@@ -416,13 +432,13 @@ udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const cha
     pMesh->numElements = 0;
     pMesh->materialID = (uint16_t)vcPolygonModel_GetShaderType(pDefaultMeshLayout, DefaultTotalTypes);\
 
-    // Check for unsupported vertex format
-    if (pPolygonModel->pMeshes[0].materialID == vcPMST_Count)
-      UD_ERROR_SET(udR_Unsupported);
+      // Check for unsupported vertex format
+      if (pPolygonModel->pMeshes[0].materialID == vcPMST_Count)
+        UD_ERROR_SET(udR_Unsupported);
 
     const char *pTextureFilepath = udTempStr("%s%s", pOBJReader->basePath.GetPath(), pMaterial->map_Kd);
     vcTexture_AsyncCreateFromFilename(&pMesh->material.pTexture, pWorkerPool, pTextureFilepath, vcTFM_Linear, false, vcTWM_Repeat, MaxTextureSize);
-   //pPolygonModel->assetLoadRemaining++; // texture
+    //pPolygonModel->assetLoadRemaining++; // texture
 
     AsyncPolygonModelLoadMeshInfo *pLoadInfo = udAllocType(AsyncPolygonModelLoadMeshInfo, 1, udAF_Zero);
     UD_ERROR_NULL(pLoadInfo, udR_MemoryAllocationFailure);
@@ -560,6 +576,39 @@ udResult vcPolygonModel_Render(vcPolygonModel *pModel, const float encodedObject
   return result;
 }
 
+udResult vcPolygonModel_RenderInstanced(vcPolygonModel *pModel, const udDouble4x4 &viewProjectionMatrix, uint32_t instanceCount, void *pInstanceData, uint32_t perInstanceDataSize)
+{
+  udUnused(viewProjectionMatrix);
+
+  if (pModel == nullptr)
+    return udR_InvalidParameter_;
+
+  udResult result = udR_Success;
+
+  for (int i = 0; i < pModel->meshCount; ++i)
+  {
+    vcPolygonModelMesh *pModelMesh = &pModel->pMeshes[i];
+    vcPolygonModelShader *pPolygonShader = &gShaders[vcPMST_P3N3UV2_Instanced_Opaque];
+    vcTexture *pDiffuseTexture = pModelMesh->material.pTexture;
+
+    if (pModelMesh->pMesh == nullptr)// || pModelMesh->material.pTexture == nullptr)
+      continue;
+
+    if (pDiffuseTexture == nullptr)
+      pDiffuseTexture = pWhiteTexture;
+
+    vcShader_Bind(pPolygonShader->pShader);
+
+    vcShader_BindConstantBuffer(pPolygonShader->pShader, pPolygonShader->pEveryInstanceDynamicConstantBuffer, pInstanceData, instanceCount * perInstanceDataSize);
+    vcShader_BindTexture(pPolygonShader->pShader, pDiffuseTexture, 0, pPolygonShader->pDiffuseSampler);
+
+    vcMesh_Render(pModelMesh->pMesh, 0, 0, vcMRM_Triangles, instanceCount);
+  }
+
+  // TODO: (EVC-570) handle failures
+  return result;
+}
+
 udResult vcPolygonModel_Destroy(vcPolygonModel **ppModel)
 {
   if (ppModel == nullptr || *ppModel == nullptr)
@@ -631,6 +680,20 @@ udResult vcPolygonModel_CreateShaders(udWorkerPool *pWorkerPool)
     }
   ), udR_InternalError);
 
+
+  pPolygonShader = &gShaders[vcPMST_P3N3UV2_Instanced_Opaque];
+  UD_ERROR_IF(!vcShader_CreateFromFileAsync(&pPolygonShader->pShader, pWorkerPool, "asset://assets/shaders/polygonP3N3UV2InstancedVertexShader", "asset://assets/shaders/polygonP3N3UV2FragmentShader", vcP3N3UV2VertexLayout,
+    [pPolygonShader](void *)
+    {
+      vcShader_Bind(pPolygonShader->pShader);
+      vcShader_GetConstantBuffer(&pPolygonShader->pEveryInstanceDynamicConstantBuffer, pPolygonShader->pShader, "u_EveryInstanceDynamic", 65472); //65536
+      vcShader_GetSamplerIndex(&pPolygonShader->pDiffuseSampler, pPolygonShader->pShader, "albedo");
+
+      //vcShader_GetConstantBuffer(&pPolygonShader->pEveryInstanceStaticConstantBuffer, pPolygonShader->pShader, "u_EveryInstanceStatic", sizeof(vcPolygonModelShader::everyFrame));
+      //vcShader_GetConstantBuffer(&pPolygonShader->pEveryInstanceDynamicConstantBuffer, pPolygonShader->pShader, "u_EveryInstanceDynamic", sizeof(vcPolygonModelShader::everyFrame));
+    }
+  ), udR_InternalError);
+
   UD_ERROR_CHECK(vcTexture_Create(&pWhiteTexture, 1, 1, &WhitePixel));
 
   result = udR_Success;
@@ -652,6 +715,10 @@ udResult vcPolygonModel_DestroyShaders()
   for (int i = 0; i < vcPMST_Count; ++i)
   {
     vcShader_ReleaseConstantBuffer(gShaders[i].pShader, gShaders[i].pEveryObjectConstantBuffer);
+
+    vcShader_ReleaseConstantBuffer(gShaders[i].pShader, gShaders[i].pEveryInstanceStaticConstantBuffer);
+    vcShader_ReleaseConstantBuffer(gShaders[i].pShader, gShaders[i].pEveryInstanceDynamicConstantBuffer);
+
     vcShader_DestroyShader(&gShaders[i].pShader);
   }
 

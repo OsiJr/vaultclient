@@ -179,7 +179,61 @@ udResult vcMesh_UploadSubData(vcMesh *pMesh, const vcVertexLayoutTypes *pLayout,
   return result;
 }
 
-bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t startElement /* = 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/)
+bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t startElement /* = 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/, uint32_t instanceCount /*= 1*/)
+{
+  if (pMesh == nullptr || (pMesh->indexBytes > 0 && pMesh->indexCount < (elementCount + startElement) * 3) || (elementCount == 0 && startElement != 0))
+    return false;
+
+  if (elementCount == 0)
+    elementCount = (pMesh->indexCount ? pMesh->indexCount : pMesh->vertexCount) / 3;
+
+  glBindVertexArray(pMesh->vao);
+  glBindBuffer(GL_ARRAY_BUFFER, pMesh->vbo);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pMesh->ibo);
+
+  GLenum glRenderMode = GL_TRIANGLES;
+  int elementsPerPrimitive = 3;
+  switch (renderMode)
+  {
+  case vcMRM_TriangleStrip:
+    glRenderMode = GL_TRIANGLE_STRIP;
+    elementsPerPrimitive = 1;
+    break;
+  case vcMRM_Points:
+    glRenderMode = GL_POINTS;
+    elementsPerPrimitive = 1;
+    break;
+  case vcMRM_Triangles: // fall through
+  default:
+    glRenderMode = GL_TRIANGLES;
+    elementsPerPrimitive = 3;
+    break;
+  }
+
+  if (instanceCount == 1)
+  {
+    if (pMesh->indexCount == 0)
+      glDrawArrays(glRenderMode, startElement * elementsPerPrimitive, elementCount * elementsPerPrimitive);
+    else
+      glDrawElements(glRenderMode, elementCount * elementsPerPrimitive, pMesh->indexType, (void *)(size_t)(startElement * elementsPerPrimitive * pMesh->indexBytes));
+  }
+  else
+  {
+    if (pMesh->indexCount == 0)
+      glDrawArraysInstanced(glRenderMode, startElement * elementsPerPrimitive, elementCount * elementsPerPrimitive, instanceCount);
+    else
+      glDrawElementsInstanced(glRenderMode, elementCount * elementsPerPrimitive, pMesh->indexType, (void *)(size_t)(startElement * elementsPerPrimitive * pMesh->indexBytes), instanceCount);
+  }
+
+  VERIFY_GL();
+
+  glBindVertexArray(0);
+
+  vcGLState_ReportGPUWork(1, elementCount * elementsPerPrimitive, 0);
+  return true;
+}
+
+bool vcMesh_RenderInstanced(vcMesh *pMesh, uint32_t instanceCount, uint32_t elementCount /*= 0*/, uint32_t startElement /*= 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/)
 {
   if (pMesh == nullptr || (pMesh->indexBytes > 0 && pMesh->indexCount < (elementCount + startElement) * 3) || (elementCount == 0 && startElement != 0))
     return false;
@@ -211,9 +265,9 @@ bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t start
   }
 
   if (pMesh->indexCount == 0)
-    glDrawArrays(glRenderMode, startElement * elementsPerPrimitive, elementCount * elementsPerPrimitive);
+    glDrawArraysInstanced(glRenderMode, startElement * elementsPerPrimitive, elementCount * elementsPerPrimitive, instanceCount);
   else
-    glDrawElements(glRenderMode, elementCount * elementsPerPrimitive, pMesh->indexType, (void*)(size_t)(startElement * elementsPerPrimitive * pMesh->indexBytes));
+    glDrawElementsInstanced(glRenderMode, elementCount * elementsPerPrimitive, pMesh->indexType, (void*)(size_t)(startElement * elementsPerPrimitive * pMesh->indexBytes), instanceCount);
 
   VERIFY_GL();
 

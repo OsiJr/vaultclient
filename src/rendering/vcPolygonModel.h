@@ -51,12 +51,14 @@ struct vcPolygonModel
 udResult vcPolygonModel_CreateShaders(udWorkerPool *pWorkerPool);
 udResult vcPolygonModel_DestroyShaders();
 
-udResult vcPolygonModel_CreateFromRawVertexData(vcPolygonModel **ppPolygonModel, const void *pVerts, const uint32_t vertCount, const vcVertexLayoutTypes *pMeshLayout, const int totalTypes, const uint32_t *pIndices = nullptr, const uint32_t indexCount = 0);
+udResult vcPolygonModel_CreateFromRawVertexData(vcPolygonModel **ppPolygonModel, const void *pVerts, const uint32_t vertCount, const vcVertexLayoutTypes *pMeshLayout, const int totalTypes, const uint32_t *pIndices = nullptr, const uint32_t indexCount = 0, bool instanced = false);
 udResult vcPolygonModel_CreateFromURL(vcPolygonModel **ppModel, const char *pURL, udWorkerPool *pWorkerPool);
 
 udResult vcPolygonModel_Destroy(vcPolygonModel **ppModel);
 
 udResult vcPolygonModel_Render(vcPolygonModel *pModel, const float encodedObjectId, const udDouble4x4 &modelMatrix, const udDouble4x4 &viewProjectionMatrix, const vcPolyModelPass &passType = vcPMP_Standard, const udFloat4 &tint = udFloat4::one(), vcTexture *pDiffuseOverride = nullptr, const udFloat4 *pColourOverride = nullptr);
+
+udResult vcPolygonModel_RenderInstanced(vcPolygonModel *pModel, const udDouble4x4 &viewProjectionMatrix, uint32_t instanceCount, void *pInstanceData, uint32_t perInstanceDataSize);
 
 // TODO: (EVC-570) Parsing formats should be in their own module, not here
 udResult vcPolygonModel_CreateFromVSMFInMemory(vcPolygonModel **ppModel, char *pData, int dataLength, udWorkerPool *pWorkerPool);

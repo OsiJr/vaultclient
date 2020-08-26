@@ -29,6 +29,6 @@ void vcMesh_Destroy(vcMesh **ppMesh);
 udResult vcMesh_UploadData(vcMesh *pMesh, const vcVertexLayoutTypes *pLayout, int totalTypes, const void* pVerts, int totalVerts, const void *pIndices, int totalIndices);
 udResult vcMesh_UploadSubData(vcMesh *pMesh, const vcVertexLayoutTypes *pLayout, int totalTypes, int startVertex, const void* pVerts, int totalVerts, const void *pIndices, int totalIndices);
 
-bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount = 0, uint32_t startElement = 0, vcMeshRenderMode renderMode = vcMRM_Triangles);
+bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount = 0, uint32_t startElement = 0, vcMeshRenderMode renderMode = vcMRM_Triangles, uint32_t instanceCount = 1);
 
 #endif // vcMesh_h__

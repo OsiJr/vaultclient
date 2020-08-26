@@ -39,6 +39,8 @@ private:
   double m_labelDistance;
 
 public:
+  vcPolygonModel *m_pModel;
+
   vcPlaceLayer(vcProject *pProject, udProjectNode *pNode, vcState *pProgramState);
   ~vcPlaceLayer() {};
 

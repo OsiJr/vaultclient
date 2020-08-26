@@ -299,7 +299,7 @@ bool vcShader_BindConstantBuffer(vcShader *pShader, vcShaderConstantBuffer *pBuf
     if (g_pd3dDeviceContext->Map(pBuffer->buffers[i].pBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource) != S_OK)
       return false;
 
-    if (mapped_resource.RowPitch == bufferSize)
+    if (mapped_resource.RowPitch >= bufferSize) // TODO before PR: confirm with works for partial-ubo uploading
       memcpy(mapped_resource.pData, pData, bufferSize);
 #if UD_DEBUG
     else

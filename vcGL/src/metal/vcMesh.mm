@@ -127,7 +127,7 @@ udResult vcMesh_UploadSubData(vcMesh *pMesh, const vcVertexLayoutTypes *pLayout,
 }
 
 
-bool vcMesh_Render(struct vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t startElement /* = 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/)
+bool vcMesh_Render(struct vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t startElement /* = 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/, uint32_t instanceCount /*= 1*/)
 {
   if (pMesh == nullptr || (pMesh->indexBytes > 0 && pMesh->indexCount < (elementCount + startElement) * 3) || (elementCount == 0 && startElement != 0))
     return false;
@@ -170,7 +170,7 @@ bool vcMesh_Render(struct vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_
       }
       
       [g_pCurrFramebuffer->encoder setVertexBuffer:pMesh->vBuffer offset:0 atIndex:30];
-      [g_pCurrFramebuffer->encoder drawIndexedPrimitives:primitiveType indexCount:elementCount indexType:pMesh->indexType indexBuffer:pMesh->iBuffer indexBufferOffset:startElement * elementsPerPrimitive * pMesh->indexBytes];
+      [g_pCurrFramebuffer->encoder drawIndexedPrimitives:primitiveType indexCount:elementCount indexType:pMesh->indexType indexBuffer:pMesh->iBuffer indexBufferOffset:startElement * elementsPerPrimitive * pMesh->indexBytes instanceCount:instanceCount];
     }
     else
     {
@@ -187,7 +187,7 @@ bool vcMesh_Render(struct vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_
       }
 
       [g_pCurrFramebuffer->encoder setVertexBuffer:pMesh->vBuffer offset:startElement * pMesh->vertexBytes atIndex:30];
-      [g_pCurrFramebuffer->encoder drawPrimitives:primitiveType vertexStart:startElement * pMesh->vertexBytes vertexCount:elementCount];
+      [g_pCurrFramebuffer->encoder drawPrimitives:primitiveType vertexStart:startElement * pMesh->vertexBytes vertexCount:elementCount instanceCount:instanceCount];
     }
   }
 

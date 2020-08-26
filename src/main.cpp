@@ -2257,7 +2257,7 @@ void vcRenderScene_HandlePicking(vcState *pProgramState, vcRenderData &renderDat
   }
   else //Not 'using' tool but might need to 'preview' the tool
   {
-    vcSceneTool::tools[pProgramState->activeTool]->PreviewPicking(pProgramState, renderData, pickResult);
+    //vcSceneTool::tools[pProgramState->activeTool]->PreviewPicking(pProgramState, renderData, pickResult);
   }
 }
 
@@ -2562,6 +2562,9 @@ void vcMain_RenderSceneWindow(vcState *pProgramState)
       renderData.depthLines.Init(32);
       renderData.viewSheds.Init(32);
       renderData.pins.Init(512);
+      renderData.instancedModels.Init(32);
+      renderData.instancedModels2.Init(32);
+
       renderData.mouse.position.x = (uint32_t)(io.MousePos.x - viewportPosition.x);
       renderData.mouse.position.y = (uint32_t)(io.MousePos.y - viewportPosition.y);
       renderData.mouse.clicked = io.MouseClicked[1];
@@ -2661,6 +2664,8 @@ void vcMain_RenderSceneWindow(vcState *pProgramState)
       renderData.depthLines.Deinit();
       renderData.viewSheds.Deinit();
       renderData.pins.Deinit();
+      renderData.instancedModels.Deinit();
+      renderData.instancedModels2.Deinit();
 
       // Handle context menu
       if ((wasViewportContextMenuOpenLastFrame == -1 || wasViewportContextMenuOpenLastFrame == viewportIndex))

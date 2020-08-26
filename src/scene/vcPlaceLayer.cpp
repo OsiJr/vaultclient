@@ -14,6 +14,27 @@
 #include "imgui.h"
 #include "imgui_ex/vcImGuiSimpleWidgets.h"
 
+struct vcPolygonModelLoadInfo
+{
+  vcState *pProgramState;
+  vcPlaceLayer *pNode;
+};
+
+void vcPlaceLayer_LoadModel(void *pLoadInfoPtr)
+{
+  vcPolygonModelLoadInfo *pLoadInfo = (vcPolygonModelLoadInfo *)pLoadInfoPtr;
+  if (pLoadInfo->pProgramState->programComplete)
+    return;
+
+  udInterlockedCompareExchange(&pLoadInfo->pNode->m_loadStatus, vcSLS_Loading, vcSLS_Pending);
+  udResult result = vcPolygonModel_CreateFromURL(&pLoadInfo->pNode->m_pModel, pLoadInfo->pNode->m_pNode->pURI, pLoadInfo->pProgramState->pWorkerPool);
+
+  if (result == udR_OpenFailure)
+    result = vcPolygonModel_CreateFromURL(&pLoadInfo->pNode->m_pModel, udTempStr("%s%s", pLoadInfo->pProgramState->activeProject.pRelativeBase, pLoadInfo->pNode->m_pNode->pURI), pLoadInfo->pProgramState->pWorkerPool);
+
+  udInterlockedCompareExchange(&pLoadInfo->pNode->m_loadStatus, (result == udR_Success ? vcSLS_Loaded : vcSLS_Failed), vcSLS_Loading);
+}
+
 vcPlaceLayer::vcPlaceLayer(vcProject *pProject, udProjectNode *pNode, vcState *pProgramState) :
   vcSceneItem(pProject, pNode, pProgramState)
 {
@@ -31,8 +52,24 @@ vcPlaceLayer::vcPlaceLayer(vcProject *pProject, udProjectNode *pNode, vcState *p
   config.textureRepeatScale = 1.0;
   config.textureScrollSpeed = 1.0;
 
+  m_loadStatus = vcSLS_Pending;
+
+  vcPolygonModelLoadInfo *pLoadInfo = udAllocType(vcPolygonModelLoadInfo, 1, udAF_Zero);
+  if (pLoadInfo != nullptr)
+  {
+    // Prepare the load info
+    pLoadInfo->pNode = this;
+    pLoadInfo->pProgramState = pProgramState;
+
+    udWorkerPool_AddTask(pProgramState->pWorkerPool, vcPlaceLayer_LoadModel, pLoadInfo, true);
+  }
+  else
+  {
+    m_loadStatus = vcSLS_Failed;
+  }
+
   OnNodeUpdate(pProgramState);
-  m_loadStatus = vcSLS_Loaded;
+
 }
 
 void vcPlaceLayer::OnNodeUpdate(vcState *pProgramState)
@@ -66,11 +103,13 @@ void vcPlaceLayer::AddToScene(vcState *pProgramState, vcRenderData *pRenderData)
     return;
 
   size_t usedLabels = 0;
+  vcPolygonModel *pPolygonModel = nullptr;
 
   for (size_t i = 0; i < m_places.length; ++i)
   {
     double distSq = udMagSq(pProgramState->pActiveViewport->camera.position - m_places[i].localSpace);
 
+    // Labels
     if (distSq < m_labelDistance * m_labelDistance)
     {
       if (m_closeLabels.length <= usedLabels)
@@ -101,6 +140,17 @@ void vcPlaceLayer::AddToScene(vcState *pProgramState, vcRenderData *pRenderData)
     else if (distSq < m_pinDistance * m_pinDistance)
     {
       pRenderData->pins.PushBack({ m_places[i].localSpace, m_pPinIcon, m_places[i].count, this });
+    }
+
+    // Models
+    if (pPolygonModel != nullptr)
+    {
+      udDouble4x4 worldMatrix = udDouble4x4::translation(m_places[i].localSpace);
+     // udDouble4x4 worldViewProjectionMatrix = pProgramState->pActiveViewport->camera.matrices.viewProjection * worldMatrix;
+      //vcInstanceGeometryData data = { udFloat4x4::create(worldViewProjectionMatrix), udFloat4x4::create(worldMatrix), udFloat4::create(1,1,1,1), udFloat4::create(0,0,0,0) };
+      vcInstanceGeometryData data = { udFloat4x4::create(worldMatrix), udFloat4::create(1, 1, 1, 1), udFloat4::create(0, 0, 0, 0) };
+    
+      pRenderData->instancedModels.PushInstances(pPolygonModel, &data, 1);
     }
   }
 }

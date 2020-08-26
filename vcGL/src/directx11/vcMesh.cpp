@@ -43,7 +43,7 @@ epilogue:
   return result;
 }
 
-udResult vcMesh_Create(vcMesh **ppMesh, const vcVertexLayoutTypes *pMeshLayout, int totalTypes, const void* pVerts, uint32_t currentVerts, const void *pIndices, uint32_t currentIndices, vcMeshFlags flags/* = vcMF_None*/)
+udResult vcMesh_Create(vcMesh **ppMesh, const vcVertexLayoutTypes *pMeshLayout, int totalTypes, const void* pVerts, uint32_t currentVerts, const void *pIndices, uint32_t currentIndices, vcMeshFlags flags /* = vcMF_None*/)
 {
   bool invalidIndexSetup = ((flags & vcMF_NoIndexBuffer) == 0) && ((pIndices == nullptr && currentIndices > 0) || currentIndices == 0);
   if (ppMesh == nullptr || pMeshLayout == nullptr || totalTypes == 0 || currentVerts == 0 || invalidIndexSetup)
@@ -158,7 +158,6 @@ epilogue:
 
 udResult vcMesh_UploadSubData(vcMesh *pMesh, const vcVertexLayoutTypes *pLayout, int totalTypes, int startVertex, const void* pVerts, int totalVerts, const void *pIndices, int totalIndices)
 {
-
   if (pMesh == nullptr || pLayout == nullptr || totalTypes == 0 || pVerts == nullptr || totalVerts == 0 || pMesh->drawType != D3D11_USAGE_DYNAMIC)
     return udR_InvalidParameter_;
 
@@ -186,7 +185,7 @@ epilogue:
   return result;
 }
 
-bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t startElement /* = 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/)
+bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t startElement /* = 0*/, vcMeshRenderMode renderMode /*= vcMRM_Triangles*/, uint32_t instanceCount /*= 1*/)
 {
   if (pMesh == nullptr || (pMesh->indexBytes > 0 && pMesh->indexCount < (elementCount + startElement) * 3) || (elementCount == 0 && startElement != 0))
     return false;
@@ -224,10 +223,20 @@ bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t start
 
   g_pd3dDeviceContext->IASetPrimitiveTopology(d3dRenderMode);
 
-  if (pMesh->indexCount == 0)
-    g_pd3dDeviceContext->Draw(elementCount * elementsPerPrimitive, startElement * elementsPerPrimitive);
+  if (instanceCount == 1)
+  {
+    if (pMesh->indexCount == 0)
+      g_pd3dDeviceContext->Draw(elementCount * elementsPerPrimitive, startElement * elementsPerPrimitive);
+    else
+      g_pd3dDeviceContext->DrawIndexed(elementCount * elementsPerPrimitive, startElement * elementsPerPrimitive, 0);
+  }
   else
-    g_pd3dDeviceContext->DrawIndexed(elementCount * elementsPerPrimitive, startElement * elementsPerPrimitive, 0);
+  {
+    if (pMesh->indexCount == 0)
+      g_pd3dDeviceContext->DrawInstanced(elementCount * elementsPerPrimitive, instanceCount, startElement * elementsPerPrimitive, 0);
+    else
+      g_pd3dDeviceContext->DrawIndexedInstanced(elementCount * elementsPerPrimitive, instanceCount, startElement * elementsPerPrimitive, 0, 0);
+  }
 
   vcGLState_ReportGPUWork(1, elementCount * elementsPerPrimitive, 0);
   return true;
