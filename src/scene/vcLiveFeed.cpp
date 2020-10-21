@@ -18,6 +18,8 @@
 #include "udChunkedArray.h"
 #include "udStringUtil.h"
 
+#define KEY_FRAME_COUNT 25
+
 struct vcLiveFeedItemLOD
 {
   double distance; // Normalized Distance
@@ -33,7 +35,11 @@ struct vcLiveFeedItemLOD
 
 struct vcLiveFeedItem
 {
-  udUUID uuid;
+  //udUUID uuid;
+  char uuid[33];
+  char type[25];
+
+  double time;
 
   bool visible;
   bool selected;
@@ -45,13 +51,20 @@ struct vcLiveFeedItem
   udDouble3 previousPositionLatLong; // Previous known location
   udDouble3 livePositionLatLong; // Latest known location
 
-  udDouble3 previousLerpedLatLong;
+  //udDouble3 previousLerpedLatLong;
   udDouble3 displayPosition; // Where we're going to display the item (geolocated space)
 
   double tweenAmount;
 
   double minBoundingRadius;
-  udChunkedArray<vcLiveFeedItemLOD> lodLevels;
+  //udChunkedArray<vcLiveFeedItemLOD> lodLevels;
+
+  udDouble3 displayPositions[KEY_FRAME_COUNT];
+  int count;
+
+  bool lineCalculated;
+  vcLineInstance *pLine;
+  vcLabelInfo label;
 };
 
 struct vcLiveFeedUpdateInfo
@@ -62,20 +75,20 @@ struct vcLiveFeedUpdateInfo
   bool newer; // Are we fetching newer or older data?
 };
 
-void vcLiveFeedItem_ClearLODs(vcLiveFeedItem *pFeedItem)
-{
-  for (size_t lodLevelIndex = 0; lodLevelIndex < pFeedItem->lodLevels.length; ++lodLevelIndex)
-  {
-    vcLiveFeedItemLOD &ref = pFeedItem->lodLevels[lodLevelIndex];
-
-    udFree(ref.pPinIcon);
-    udFree(ref.pLabelText);
-    udFree(ref.pLabelInfo);
-    udFree(ref.pModelAddress);
-  }
-
-  pFeedItem->lodLevels.Deinit();
-}
+//void vcLiveFeedItem_ClearLODs(vcLiveFeedItem *pFeedItem)
+//{
+//  for (size_t lodLevelIndex = 0; lodLevelIndex < pFeedItem->lodLevels.length; ++lodLevelIndex)
+//  {
+//    vcLiveFeedItemLOD &ref = pFeedItem->lodLevels[lodLevelIndex];
+//
+//    udFree(ref.pPinIcon);
+//    udFree(ref.pLabelText);
+//    udFree(ref.pLabelInfo);
+//    udFree(ref.pModelAddress);
+//  }
+//
+//  pFeedItem->lodLevels.Deinit();
+//}
 
 void vcLiveFeed_LoadModel(void *pUserData)
 {
@@ -108,27 +121,104 @@ void vcLiveFeed_LoadModel(void *pUserData)
   }
 }
 
+
+#include "udWeb.h"
+#include "udStringUtil.h"
+
 void vcLiveFeed_UpdateFeed(void *pUserData)
 {
   vcLiveFeedUpdateInfo *pInfo = (vcLiveFeedUpdateInfo*)pUserData;
 
   const char *pFeedsJSON = nullptr;
+  uint64_t responseLength = 0;
+  int responseCode = 0;
 
-  const char *pServerAddr = "v1/feeds/fetch";
-  const char *pMessage = udTempStr("{ \"groupid\": \"%s\", \"time\": %f, \"newer\": %s }", udUUID_GetAsString(&pInfo->pFeed->m_groupID), pInfo->newer ? pInfo->pFeed->m_newestFeedUpdate : pInfo->pFeed->m_oldestFeedUpdate, pInfo->newer ? "true" : "false");
+  //const char *pServerAddr = "v1/feeds/fetch";
+  //const char *pMessage = udTempStr("{ \"groupid\": \"%s\", \"time\": %f, \"newer\": %s }", udUUID_GetAsString(&pInfo->pFeed->m_groupID), pInfo->newer ? pInfo->pFeed->m_newestFeedUpdate : pInfo->pFeed->m_oldestFeedUpdate, pInfo->newer ? "true" : "false");
 
-  udError vError = udServerAPI_Query(pInfo->pProgramState->pUDSDKContext, pServerAddr, pMessage, &pFeedsJSON);
+  //const char message[] = "{ \"api\": \"qbF^obhbQEfDzUtNgUN3nZk1$7f6#?IA\", \"query\": \"SELECT * FROM geospock.default.hkjourneysrevisedlatest1daymedium AS event WHERE event.timestamp BETWEEN TIMESTAMP '2020-08-10 08:00:00' AND TIMESTAMP '2020-08-10 08:00:01'\"}";
+  const char message[] = "{ \"api\": \"qbF^obhbQEfDzUtNgUN3nZk1$7f6#?IA\", \"query\": \"SELECT * FROM geospock.default.hkjourneysrevisedlatest1daylarge AS event WHERE event.timestamp BETWEEN TIMESTAMP '2020-08-10 08:00:00' AND TIMESTAMP '2020-08-10 08:00:20'\"}";
+  const char *pServerAddr = "http://54.183.255.231:7998/query";
 
-  double updatedTime = 0.0;
+  udWebOptions options = {};
+  options.method = udWM_POST;
+  options.pPostData = (uint8_t*)message;
+  options.postLength = udLengthOf(message) - 1;
+
+  udError vError = udWeb_RequestAdv(pServerAddr, options, &pFeedsJSON, &responseLength, &responseCode);
+
+ // double updatedTime = 0.0;
 
   pInfo->pFeed->m_lastFeedSync = udGetEpochSecsUTCf();
+
+  //udLockMutex(pInfo->pFeed->m_pMutex);
+
+  // todo: memory cleanup
+  //pInfo->pFeed->m_feedItems.Clear();
 
   if (vError == udE_Success)
   {
     udJSON data;
     if (data.Parse(pFeedsJSON) == udR_Success)
     {
-      udJSONArray *pFeeds = data.Get("feeds").AsArray();
+      udJSONArray *pFeeds = data.AsArray();
+      for (size_t i = 0; i < pFeeds->length; ++i)
+      {
+        udJSONArray *pNode = pFeeds->GetElement(i)->AsArray();
+        vcLiveFeedItem *pFeedItem = nullptr;
+
+        //udUUID uuid;
+        //if (udUUID_SetFromString(&uuid, pNode->GetElement(3)->AsString()) != udR_Success)
+        //  continue;
+
+        const char *uuid = pNode->GetElement(3)->AsString();
+        const char *type = pNode->GetElement(4)->AsString();
+
+        size_t j = 0;
+        for (; j < pInfo->pFeed->m_feedItems.length; ++j)
+        {
+          vcLiveFeedItem *pCachedFeedItem = pInfo->pFeed->m_feedItems[j];
+        
+          if (udStrEqual(uuid, pCachedFeedItem->uuid))
+          {
+            pFeedItem = pCachedFeedItem;
+            break;
+          }
+        }
+
+        udDouble3 newPositionLatLong = udDouble3::create(pNode->GetElement(0)->AsDouble(), pNode->GetElement(1)->AsDouble(), 0.0);// pNode->Get("geometry.coordinates").AsDouble3();
+        //double updated = pNode->Get("updated").AsDouble();
+        //pFeedItem->count++;
+
+        if (pFeedItem == nullptr)
+        {
+          pFeedItem = udAllocType(vcLiveFeedItem, 1, udAF_Zero);
+
+          vcLineRenderer_CreateLine(&pFeedItem->pLine);
+
+          pFeedItem->label.backColourRGBA = 0x7f000000;
+          pFeedItem->label.textColourRGBA = 0xffffffff;
+          pFeedItem->label.pSceneItem = pInfo->pFeed;
+
+          pFeedItem->label.pText;
+          //pFeedItem->lodLevels.Init(4);
+          //pFeedItem->uuid = uuid;
+          udStrcpy(pFeedItem->uuid, uuid);
+          udStrcpy(pFeedItem->type, type);
+          udLockMutex(pInfo->pFeed->m_pMutex);
+          pInfo->pFeed->m_feedItems.PushBack(pFeedItem);
+          udReleaseMutex(pInfo->pFeed->m_pMutex);
+
+          pFeedItem->previousPositionLatLong = newPositionLatLong;
+          //pFeedItem->displayPosition = udDouble3::zero();
+          pFeedItem->tweenAmount = 1.0f;
+        }
+
+        pFeedItem->displayPositions[pFeedItem->count] = udGeoZone_LatLongToCartesian(pInfo->pProgramState->geozone, newPositionLatLong, false);
+        pFeedItem->count++;
+      }
+
+      /*udJSONArray *pFeeds = data.Get("feeds").AsArray();
 
       pInfo->pFeed->m_fetchNow = pInfo->newer && data.Get("more").AsBool();
       updatedTime = data.Get("lastUpdate").AsDouble();
@@ -270,10 +360,13 @@ void vcLiveFeed_UpdateFeed(void *pUserData)
 
         udReleaseMutex(pInfo->pFeed->m_pMutex);
       }
+      */
     }
   }
 
-epilogue:
+ // udReleaseMutex(pInfo->pFeed->m_pMutex);
+
+//epilogue:
   udServerAPI_ReleaseResult(&pFeedsJSON);
 
   pInfo->pFeed->m_loadStatus = vcSLS_Loaded;
@@ -324,17 +417,24 @@ void vcLiveFeed::OnNodeUpdate(vcState *pProgramState)
   ChangeProjection(pProgramState->geozone);
 }
 
+#include "vcInternalModels.h"
+#include <math.h>
+
 void vcLiveFeed::AddToScene(vcState *pProgramState, vcRenderData *pRenderData)
 {
   if (!m_visible)
     return;
 
   double now = udGetEpochSecsUTCf();
-  double recently = now - m_decayFrequency;
 
-  if (m_loadStatus != vcSLS_Loading && ((now >= m_lastFeedSync + m_updateFrequency) || (now - m_decayFrequency < m_oldestFeedUpdate) || m_fetchNow))
+  //double recently = now - m_decayFrequency;
+
+  static bool gotData = false;
+
+  if (!gotData && m_loadStatus != vcSLS_Loading && ((now >= m_lastFeedSync + m_updateFrequency) || (now - m_decayFrequency < m_oldestFeedUpdate) || m_fetchNow))
   {
     m_loadStatus = vcSLS_Loading;
+    gotData = true;
 
     vcLiveFeedUpdateInfo *pInfo = udAllocType(vcLiveFeedUpdateInfo, 1, udAF_Zero);
     pInfo->pProgramState = pProgramState;
@@ -346,36 +446,108 @@ void vcLiveFeed::AddToScene(vcState *pProgramState, vcRenderData *pRenderData)
     udWorkerPool_AddTask(pProgramState->pWorkerPool, vcLiveFeed_UpdateFeed, pInfo);
   }
 
+
+  printf("Selected Item: %zu\n", m_selectedItem);
+
   m_visibleItems = 0;
+
+  static int skipId = -1;
 
   udLockMutex(m_pMutex);
   for (size_t i = 0; i < m_feedItems.length; ++i)
   {
     vcLiveFeedItem *pFeedItem = m_feedItems[i];
 
-    // If its not visible or its been a while since it was visible
-    if (!pFeedItem->visible || pFeedItem->lastUpdated < recently)
-    {
-      pFeedItem->visible = false;
+    if (pFeedItem->count == 0)
       continue;
+
+    if (skipId != -1 && i != skipId)
+      continue;
+
+    //if (m_selectedItem != 0 && IsSubitemSelected(i + 1))
+    //  continue;
+
+    //if (i != 5000)
+    //  continue;
+
+    pFeedItem->time += pProgramState->deltaTime;
+
+    double intPart = 0.0;
+    double lerpT = modf(pFeedItem->time, &intPart);
+    int index = (int)(pFeedItem->time) % pFeedItem->count;
+    int nextIndex = udMin((int)(index + 1), pFeedItem->count); // dont wrap
+
+    // If its not visible or its been a while since it was visible
+    //if (!pFeedItem->visible || pFeedItem->lastUpdated < recently)
+    //{
+    //  pFeedItem->visible = false;
+    //  continue;
+    //}
+
+    //udDouble3 cameraPosition = pProgramState->pActiveViewport->camera.position;
+    //
+    //udDouble3 previousLerpedLatLong = pFeedItem->previousLerpedLatLong;
+    //
+    //pFeedItem->tweenAmount = m_tweenPositionAndOrientation ? udMin(1.0, pFeedItem->tweenAmount + pProgramState->deltaTime * 0.02) : 1.0;
+    //udDouble3 lerpedLatLong = udLerp(pFeedItem->previousPositionLatLong, pFeedItem->livePositionLatLong, pFeedItem->tweenAmount);
+    //FeedItem->displayPosition = udGeoZone_LatLongToCartesian(pProgramState->geozone, lerpedLatLong, true);
+    //pFeedItem->previousLerpedLatLong = lerpedLatLong;
+    //
+    //double distanceSq = udMagSq3(pFeedItem->displayPosition - cameraPosition);
+    //
+    //if (distanceSq > m_maxDisplayDistance * m_maxDisplayDistance)
+    //  continue; // Don't really want to mark !visible because it might be again soon
+
+    if (udAbs(pFeedItem->displayPositions[0].z) <= 0.001f) // assumptions
+    {
+      for (int j = 0; j < pFeedItem->count; ++j)
+      {
+        pFeedItem->displayPositions[j] = vcRender_QueryMapAtCartesian(pProgramState->pActiveViewport->pRenderContext, pFeedItem->displayPositions[j]);
+      }
     }
 
-    udDouble3 cameraPosition = pProgramState->pActiveViewport->camera.position;
+    int indexA = udMin(index, pFeedItem->count - 1);
+    int indexB = udMin(nextIndex, pFeedItem->count - 1);
 
-    udDouble3 previousLerpedLatLong = pFeedItem->previousLerpedLatLong;
+    pFeedItem->displayPosition = udLerp(pFeedItem->displayPositions[indexA], pFeedItem->displayPositions[indexB], lerpT);
+    udDouble4x4 worldTransform = udDouble4x4::scaleUniform(15.0f, pFeedItem->displayPosition);
 
-    pFeedItem->tweenAmount = m_tweenPositionAndOrientation ? udMin(1.0, pFeedItem->tweenAmount + pProgramState->deltaTime * 0.02) : 1.0;
-    udDouble3 lerpedLatLong = udLerp(pFeedItem->previousPositionLatLong, pFeedItem->livePositionLatLong, pFeedItem->tweenAmount);
-    pFeedItem->displayPosition = udGeoZone_LatLongToCartesian(pProgramState->geozone, lerpedLatLong, true);
-    pFeedItem->previousLerpedLatLong = lerpedLatLong;
+    udFloat4 colour = udFloat4::create(pFeedItem->uuid[0] / 255.0f * 4, pFeedItem->uuid[1] / 255.0f * 4, pFeedItem->uuid[2] / 255.0f * 4, 1.0f);
+    pRenderData->polyModels.PushBack({ vcRenderPolyInstance::RenderType_Polygon, vcRenderPolyInstance::RenderFlags_None, { gInternalModels[vcInternalModelType_Sphere] }, worldTransform, nullptr, colour, vcGLSCM_Back, true, this, (uint64_t)(i + 1) });
 
-    double distanceSq = udMagSq3(pFeedItem->displayPosition - cameraPosition);
+    //if (m_selectedItem == i)
+    if (pFeedItem->count > 1)
+    {
+      if (!pFeedItem->lineCalculated)
+      {
+        pFeedItem->lineCalculated = true;
+        vcLineRenderer_UpdatePoints(pFeedItem->pLine, pFeedItem->displayPositions, pFeedItem->count, colour, 3.0f, false);
+      }
+      pRenderData->lines.PushBack(pFeedItem->pLine);
+    }
 
-    if (distanceSq > m_maxDisplayDistance * m_maxDisplayDistance)
-      continue; // Don't really want to mark !visible because it might be again soon
+    if (m_selected && m_selectedItem == i + 1)
+    {
+      double totalDist = 0.0;
+      for (int p = 1; p < pFeedItem->count; ++p)
+      {
+        totalDist += udMag3(pFeedItem->displayPositions[p] - pFeedItem->displayPositions[p - 1]);
+      }
+
+      float duration = 20.0f;  // we know its over 20s
+      float kph = ((float)totalDist / duration) * 60 * 60 / 1000;
+
+      udFree(pFeedItem->label.pText);
+
+      udSprintf(&pFeedItem->label.pText, "Type: %s\nSpeed: %0.2f KM/H\n%s", pFeedItem->type, kph, pFeedItem->uuid);
+
+
+      pFeedItem->label.worldPosition = pFeedItem->displayPosition;
+      pRenderData->labels.PushBack(&pFeedItem->label);
+    }
 
     // Select & Render LOD here
-    for (size_t lodI = 0; lodI < pFeedItem->lodLevels.length; ++lodI)
+    /*for (size_t lodI = 0; lodI < pFeedItem->lodLevels.length; ++lodI)
     {
       vcLiveFeedItemLOD &lodRef = pFeedItem->lodLevels[lodI];
 
@@ -475,6 +647,7 @@ void vcLiveFeed::AddToScene(vcState *pProgramState, vcRenderData *pRenderData)
 
       break; // We got to the end so we should stop
     }
+    */
 
     ++m_visibleItems;
   }
@@ -583,7 +756,7 @@ void vcLiveFeed::Cleanup(vcState * /*pProgramState*/)
   {
     vcLiveFeedItem *pFeedItem = m_feedItems[i];
 
-    vcLiveFeedItem_ClearLODs(pFeedItem);
+    //vcLiveFeedItem_ClearLODs(pFeedItem);
     udFree(pFeedItem);
   }
 

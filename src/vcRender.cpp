@@ -714,15 +714,52 @@ float Float16ToFloat32(uint16_t float16)
   return sign * udPow(2.0f, float(exponent - exponentBias)) * (m + (fraction / 1024.0f));
 }
 
+uint16_t float16(const float in) {
+  uint32_t inu = *((uint32_t *)&in);
+  uint32_t t1;
+  uint32_t t2;
+  uint32_t t3;
+
+  t1 = inu & 0x7fffffff;                 // Non-sign bits
+  t2 = inu & 0x80000000;                 // Sign bit
+  t3 = inu & 0x7f800000;                 // Exponent
+
+  t1 >>= 13;                             // Align mantissa on MSB
+  t2 >>= 16;                             // Shift sign bit into position
+
+  t1 -= 0x1c000;                         // Adjust bias
+
+  t1 = (t3 > 0x38800000) ? 0 : t1;       // Flush-to-zero
+  t1 = (t3 < 0x8e000000) ? 0x7bff : t1;  // Clamp-to-max
+  t1 = (t3 == 0 ? 0 : t1);               // Denormals-as-zero
+
+  t1 |= t2;                              // Re-insert sign bit
+
+  return (uint16_t)t1;
+};
+
 float vcRender_EncodeModelId(uint32_t id)
 {
-  return float(id & 0xffff) / 0xffff;
+  // force it to 16 bit precsion
+  float float32 = float(id & 0xffff) / 0xffff;
+
+  //uint32_t x = *((uint32_t *)&float32);
+  //uint16_t f162 = ((x >> 16) & 0x8000) | ((((x & 0x7f800000) - 0x38000000) >> 13) & 0x7c00) | ((x >> 13) & 0x03ff);
+  //float f322 = Float16ToFloat32(f162);
+  //
+  //uint16_t f16 = float16(float32);
+  //float f32 = Float16ToFloat32(f16);
+  //return f32;
+  return float32;
 }
 
 void vcRender_DecodeModelId(uint8_t pixelBytes[8], uint16_t *pId, float *pDepth)
 {
   *pDepth = udAbs(Float16ToFloat32(uint16_t((pixelBytes[2] & 0xFF) | ((pixelBytes[3] & 0xFF) << 8))));
-  *pId = uint16_t((Float16ToFloat32(uint16_t((pixelBytes[0] & 0xFF) | ((pixelBytes[1] & 0xFF) << 8))) * 0xffff) + 0.5f);
+  float f = Float16ToFloat32(uint16_t((pixelBytes[0] & 0xFF) | ((pixelBytes[1] & 0xFF) << 8)));
+  *pId = uint16_t((f * 0xffff) + 0.5f);
+
+  printf("Picked id: %f: %d\n", f, *pId);
 }
 
 // Asychronously read a 1x1 region of last frames depth buffer 
@@ -1169,6 +1206,13 @@ void vcRender_RenderAndApplyViewSheds(vcState *pProgramState, vcRenderContext *p
 
 void vcRender_OpaquePass(vcState *pProgramState, vcRenderContext *pRenderContext, vcRenderData &renderData)
 {
+  //uint32_t id = 8129;
+  //float idf = vcRender_EncodeModelId(id);
+  //uint32_t x = *((uint32_t *)&idf);
+  //uint16_t f16 = ((x >> 16) & 0x8000) | ((((x & 0x7f800000) - 0x38000000) >> 13) & 0x7c00) | ((x >> 13) & 0x03ff);
+  //float f32 = Float16ToFloat32(f16);
+  //uint16_t finalId = uint16_t((f32 * 0xffff) + 0.5f);
+
   vcFramebuffer_Bind(pRenderContext->gBuffer[pRenderContext->activeRenderTarget].pFramebuffer, vcFramebufferClearOperation_All, 0xff000000);
 
   vcGLState_ResetState();
@@ -1898,6 +1942,10 @@ vcRenderPickResult vcRender_PolygonPick(vcState *pProgramState, vcRenderContext 
 
     uint16_t pickId = vcObjectId_Null;
     vcRender_DecodeModelId(pixelBytes, &pickId, &pickDepth);
+
+    // HACK
+    //int add = pickId / 2000;
+    //pickId += add;
 
     result.success = (pickId != vcObjectId_Null);
 
